@@ -408,6 +408,29 @@ def _build_annotation(arguments: Dict):
 
 
 # ------------------------------------------------------------------------------
+def _get_annotations_csv(
+        split_section: str,
+) -> requests.Response:
+    """
+    Requests the annotations CSV for a split section.
+
+    :param split_section:
+    :return: a requests.Response object containing the CSV payload
+    """
+
+    # get the annotations CSV for the section
+    url = _OID_v4 + split_section + "/" + split_section + "-annotations-bbox.csv"
+    response = requests.get(url, allow_redirects=True)
+    if response.status_code != 200:
+        raise ValueError(
+            f"Failed to get bounding box information for split section {split_section} "
+            f"-- Invalid response (status code: {response.status_code}) from {url}",
+        )
+
+    return response
+
+
+# ------------------------------------------------------------------------------
 def _group_bounding_boxes(
         section: str,
         label_codes: Dict,
@@ -426,35 +449,25 @@ def _group_bounding_boxes(
     :return: DataFrameGroupBy object with bounding box columns grouped by image IDs
     """
 
-    bbox_csv_name = section + "-annotations-bbox.csv"
     if csv_dir is None:
 
         # get the annotations CSV for the section
-        url = _OID_v4 + section + "/" + bbox_csv_name
-        response = requests.get(url, allow_redirects=True)
-        if response.status_code != 200:
-            raise ValueError(
-                f"Failed to get bounding box information for split section {section} "
-                f"-- Invalid response (status code: {response.status_code}) from {url}",
-            )
+        response = _get_annotations_csv(section)
+
+        # read the CSV into a pandas DataFrame
         df_images = pd.read_csv(io.BytesIO(response.content))
 
     else:
 
         # download the annotations CSV file to the specified directory if not present
-        bbox_csv_file_path = os.path.join(csv_dir, bbox_csv_name)
+        bbox_csv_file_path = os.path.join(csv_dir, section + "-annotations-bbox.csv")
         if not os.path.exists(bbox_csv_file_path):
             # get the annotations CSV for the section
-            url = _OID_v4 + section + "/" + bbox_csv_name
-            response = requests.get(url, allow_redirects=True)
-            if response.status_code != 200:
-                raise ValueError(
-                    f"Failed to get bounding box information for split section {section} "
-                    f"-- Invalid response (status code: {response.status_code}) from {url}",
-                )
+            response = _get_annotations_csv(section)
             with open(bbox_csv_file_path, "wb") as annotations_file:
                 annotations_file.write(response.content)
 
+        # read the CSV into a pandas DataFrame
         df_images = pd.read_csv(bbox_csv_file_path)
 
     # remove any rows which are identified to be excluded
@@ -758,7 +771,7 @@ def _download_single_image(arguments: Dict):
 
 
 # ------------------------------------------------------------------------------
-def parse_command_line():
+def _parse_command_line():
 
     # parse the command line arguments
     args_parser = argparse.ArgumentParser()
@@ -807,9 +820,9 @@ def parse_command_line():
 
 
 # ------------------------------------------------------------------------------
-def entrypoint_download_dataset():
+def _entrypoint_download_dataset():
 
-    args = parse_command_line()
+    args = _parse_command_line()
 
     # we must have an annotation format specified
     if args["format"] is None:
@@ -826,8 +839,8 @@ def entrypoint_download_dataset():
 
 
 # ------------------------------------------------------------------------------
-def entrypoint_download_images():
-    args = parse_command_line()
+def _entrypoint_download_images():
+    args = _parse_command_line()
 
     # we must not have an annotation format specified
     if args["format"] is not None:
@@ -843,20 +856,6 @@ def entrypoint_download_images():
 
 
 # ------------------------------------------------------------------------------
-def main():
-
-    args = parse_command_line()
-    download_dataset(
-        args["base_dir"],
-        args["label"],
-        args["format"],
-        args["exclusions"],
-        args["csv_dir"],
-        args["limit"],
-    )
-
-
-# ------------------------------------------------------------------------------
 if __name__ == "__main__":
     """
     Usage:
@@ -864,4 +863,4 @@ if __name__ == "__main__":
           --format pascal --label Person --csv_dir /data/datasets/openimages
     """
 
-    main()
+    _entrypoint_download_dataset()
