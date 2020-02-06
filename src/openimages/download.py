@@ -14,7 +14,6 @@ import pandas as pd
 import requests
 from tqdm import tqdm
 
-from cvdata.common import FORMAT_CHOICES
 from cvdata.utils import image_dimensions
 
 # define a "public API" and somewhat manage "wild" imports
@@ -759,7 +758,7 @@ def _download_single_image(arguments: Dict):
 
 
 # ------------------------------------------------------------------------------
-def main():
+def parse_command_line():
 
     # parse the command line arguments
     args_parser = argparse.ArgumentParser()
@@ -770,19 +769,18 @@ def main():
         help="path to the base output directory",
     )
     args_parser.add_argument(
-        "--format",
-        type=str,
-        required=False,
-        default="pascal",
-        choices=FORMAT_CHOICES,
-        help="output format: KITTI, PASCAL, Darknet, TFRecord, or COCO",
-    )
-    args_parser.add_argument(
-        "--label",
+        "--labels",
         type=str,
         required=True,
         nargs='+',
         help="object class to be fetched from OpenImages",
+    )
+    args_parser.add_argument(
+        "--format",
+        type=str,
+        required=False,
+        choices=["darknet", "pascal"],
+        help="output format: KITTI, PASCAL, Darknet (YOLO), TFRecord, or COCO",
     )
     args_parser.add_argument(
         "--exclusions",
@@ -805,8 +803,49 @@ def main():
         required=False,
         help="maximum number of images to download per image class/label",
     )
-    args = vars(args_parser.parse_args())
+    return vars(args_parser.parse_args())
 
+
+# ------------------------------------------------------------------------------
+def entrypoint_download_dataset():
+
+    args = parse_command_line()
+
+    # we must have an annotation format specified
+    if args["format"] is None:
+        raise argparse.ArgumentError(f"Missing the required '--format' argument")
+
+    download_dataset(
+        args["base_dir"],
+        args["label"],
+        args["format"],
+        args["exclusions"],
+        args["csv_dir"],
+        args["limit"],
+    )
+
+
+# ------------------------------------------------------------------------------
+def entrypoint_download_images():
+    args = parse_command_line()
+
+    # we must not have an annotation format specified
+    if args["format"] is not None:
+        raise argparse.ArgumentError("Invalid '--format' argument")
+
+    download_images(
+        args["base_dir"],
+        args["label"],
+        args["exclusions"],
+        args["csv_dir"],
+        args["limit"],
+    )
+
+
+# ------------------------------------------------------------------------------
+def main():
+
+    args = parse_command_line()
     download_dataset(
         args["base_dir"],
         args["label"],
