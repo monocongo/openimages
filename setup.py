@@ -15,7 +15,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/monocongo/openimages",
-    python_requires=">=3.6,<3.8",
+    python_requires=">=3.6",
     provides=[
         "openimages",
     ],
@@ -23,6 +23,7 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
         "Operating System :: OS Independent",
     ],
     package_dir={'': 'src'},
