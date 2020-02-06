@@ -17,6 +17,10 @@ from tqdm import tqdm
 from cvdata.common import FORMAT_CHOICES
 from cvdata.utils import image_dimensions
 
+# define a "public API" and somewhat manage "wild" imports
+# (see http://xion.io/post/code/python-all-wild-imports.html)
+__all__ = ["download_dataset", "download_images"]
+
 # OpenImages URL locations
 _OID_v4 = "https://storage.googleapis.com/openimages/2018_04/"
 _OID_v5 = "https://storage.googleapis.com/openimages/v5/"
@@ -35,7 +39,7 @@ _logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------------------
-def class_label_codes(
+def _class_label_codes(
         class_labels: List[str],
         csv_dir: str = None,
 ) -> Dict:
@@ -98,8 +102,8 @@ def class_label_codes(
 def download_dataset(
         dest_dir: str,
         class_labels: List[str],
-        annotation_format: str,
-        exclusions_path: str,
+        exclusions_path: str = None,
+        annotation_format: str = None,
         csv_dir: str = None,
         limit: int = None,
 ) -> Dict:
@@ -126,31 +130,32 @@ def download_dataset(
         os.makedirs(csv_dir, exist_ok=True)
 
     # get the OpenImages image class codes for the specified class labels
-    label_codes = class_label_codes(class_labels, csv_dir)
+    label_codes = _class_label_codes(class_labels, csv_dir)
 
     # build the directories for each class label
-    image_class_directories = {}
+    class_directories = {}
     for class_label in label_codes.keys():
 
-        # create directories to hold the images and annotations for the image class
+        # create directory to contain the image files for the class
         images_dir = os.path.join(dest_dir, class_label, "images")
         os.makedirs(images_dir, exist_ok=True)
-        annotations_dir = os.path.join(dest_dir, class_label, annotation_format)
-        os.makedirs(annotations_dir, exist_ok=True)
-        image_class_directories[class_label] = {
+        class_directories[class_label] = {
             "images_dir": images_dir,
-            "annotations_dir": annotations_dir,
         }
 
+        # create directory to contain the annotation files for the class
+        if annotation_format is not None:
+            annotations_dir = os.path.join(dest_dir, class_label, annotation_format)
+            os.makedirs(annotations_dir, exist_ok=True)
+            class_directories[class_label]["annotations_dir"] = annotations_dir
+
     # get the IDs of questionable files marked for exclusion
+    exclusion_ids = None
     if exclusions_path is not None:
 
         # read the file IDs from the exclusions file
         with open(exclusions_path, "r") as exclusions_file:
             exclusion_ids = set([line.rstrip('\n') for line in exclusions_file])
-
-    else:
-        exclusion_ids = None
 
     # keep counts of the number of images downloaded for each label
     class_labels = list(label_codes.keys())
@@ -182,43 +187,82 @@ def download_dataset(
                 f"Downloading {len(image_ids)} {split_section} images "
                 f"for class \'{class_label}\'",
             )
-            download_images(
+            _download_images_by_id(
                 image_ids,
                 split_section,
-                image_class_directories[class_label]["images_dir"],
+                class_directories[class_label]["images_dir"],
             )
 
             # update the downloaded images count for this label
             label_download_counts[class_label] += len(image_ids)
 
             # build the annotations
-            _logger.info(
-                f"Creating {len(image_ids)} {split_section} annotations "
-                f"({annotation_format}) for class \'{class_label}\'",
-            )
-            build_annotations(
-                annotation_format,
-                image_ids,
-                bbox_groups,
-                class_labels,
-                label_index,
-                image_class_directories[class_label]["images_dir"],
-                image_class_directories[class_label]["annotations_dir"],
-            )
+            if annotation_format is not None:
+                _logger.info(
+                    f"Creating {len(image_ids)} {split_section} annotations "
+                    f"({annotation_format}) for class \'{class_label}\'",
+                )
+                _build_annotations(
+                    annotation_format,
+                    image_ids,
+                    bbox_groups,
+                    class_labels,
+                    label_index,
+                    class_directories[class_label]["images_dir"],
+                    class_directories[class_label]["annotations_dir"],
+                )
 
-        if annotation_format == "darknet":
-            # write the class labels to a names file to allow
-            # for indexing the Darknet label numbers
-            darknet_object_names = os.path.join(dest_dir, "darknet_obj_names.txt")
-            with open(darknet_object_names, "w") as darknet_obj_names_file:
-                for label in class_labels:
-                    darknet_obj_names_file.write(f"{label}\n")
+                if annotation_format == "darknet":
+                    # write the class labels to a names file to allow
+                    # for indexing the Darknet label numbers
+                    darknet_object_names = os.path.join(dest_dir, "darknet_obj_names.txt")
+                    with open(darknet_object_names, "w") as darknet_obj_names_file:
+                        for label in class_labels:
+                            darknet_obj_names_file.write(f"{label}\n")
 
-    return image_class_directories
+    return class_directories
 
 
 # ------------------------------------------------------------------------------
 def download_images(
+        dest_dir: str,
+        class_labels: List[str],
+        exclusions_path: str,
+        csv_dir: str = None,
+        limit: int = None,
+) -> Dict:
+    """
+    Downloads a dataset of images for a specified list of OpenImages image classes.
+
+    :param dest_dir: base directory under which the images and annotations
+        will be stored
+    :param class_labels: list of OpenImages class labels we'll download
+    :param exclusions_path: path to file containing file IDs to exclude from the
+        dataset (useful if there are files known to be problematic or invalid)
+    :param csv_dir: directory where we should look for the class descriptions
+        and annotations CSV files, if these files are not present from a previous
+        usage then download these files into this directory for future use
+    :param limit: the maximum number of images per label we should download
+    :return: dictionary of the images directory directory for each class label,
+        for example: {"dog": "/data/oi/dog/images", "cat": "/data/oi/cat/images"}
+    """
+
+    image_directories = download_dataset(
+        dest_dir,
+        class_labels,
+        exclusions_path,
+        None,
+        csv_dir,
+        limit,
+    )
+
+    # collapse a level of the returned distionary so we're able to return
+    # a dictionary that just maps the class label to images directory
+    return {label: dirs_dict["images_dir"] for label, dirs_dict in image_directories.items()}
+
+
+# ------------------------------------------------------------------------------
+def _download_images_by_id(
         image_ids: List[str],
         section: str,
         images_directory: str,
@@ -255,12 +299,12 @@ def download_images(
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
 
         # use the executor to map the download function to the iterable of arguments
-        list(tqdm(executor.map(_download_image, download_args_list),
+        list(tqdm(executor.map(_download_single_image, download_args_list),
                   total=len(download_args_list)))
 
 
 # ------------------------------------------------------------------------------
-def build_annotations(
+def _build_annotations(
         annotation_format: str,
         image_ids: List[str],
         bbox_groups: pd.core.groupby.DataFrameGroupBy,
@@ -304,6 +348,10 @@ def build_annotations(
             build_args["class_label"] = class_labels[class_index]
         elif annotation_format == "darknet":
             build_args["class_index"] = class_index
+        else:
+            raise ValueError(
+                f"Unsupported annotation format: \"{annotation_format}\"",
+            )
         build_args_list.append(build_args)
 
     # use a ProcessPoolExecutor to download the images in parallel
@@ -356,7 +404,7 @@ def _build_annotation(arguments: Dict):
     #     pass
     else:
         raise ValueError(
-            f"Unsupported annnotation format: \"{arguments['annotation_format']}",
+            f"Unsupported annotation format: \"{arguments['annotation_format']}\"",
         )
 
 
@@ -629,6 +677,12 @@ def _write_bboxes_as_pascal(
     normalized_image_path = os.path.normpath(image_path)
     folder_name, image_file_name = normalized_image_path.split(os.path.sep)[-2:]
 
+    # TODO
+    #  The below creates a fresh tree in all cases for later writing to the
+    #  annotation XML file. We should instead first see if the annotation file
+    #  already exists and if so then add the annotations (bounding boxes) to
+    #  the existing element tree before we then rewrite the XML file.
+
     annotation = etree.Element('annotation')
     folder = etree.SubElement(annotation, "folder")
     folder.text = folder_name
@@ -677,7 +731,7 @@ def _write_bboxes_as_pascal(
 
 
 # ------------------------------------------------------------------------------
-def _download_image(arguments: Dict):
+def _download_single_image(arguments: Dict):
     """
     Downloads and saves an image file from the OpenImages dataset.
 
