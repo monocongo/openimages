@@ -832,8 +832,8 @@ def _entrypoint_download_dataset():
     download_dataset(
         args["base_dir"],
         args["labels"],
-        args["format"],
         args["exclusions"],
+        args["format"],
         args["csv_dir"],
         args["limit"],
     )
