@@ -108,7 +108,7 @@ def download_dataset(
 ) -> Dict:
     """
     Downloads a dataset of images and annotations for a specified list of
-    OpenImages image classes.
+    OpenImages image class labels.
 
     :param dest_dir: base directory under which the images and annotations
         will be stored
@@ -121,7 +121,8 @@ def download_dataset(
         and annotations CSV files, if these files are not present from a previous
         usage then download these files into this directory for future use
     :param limit: the maximum number of images per label we should download
-    :return: images directory and annotations directory
+    :return: dictionary of class labels mapped to dictionaries specifying the
+        corresponding images and annotations directories for the class
     """
 
     # make the metadata directory if it's specified and doesn't exist
@@ -830,7 +831,7 @@ def _entrypoint_download_dataset():
 
     download_dataset(
         args["base_dir"],
-        args["label"],
+        args["labels"],
         args["format"],
         args["exclusions"],
         args["csv_dir"],
@@ -848,7 +849,7 @@ def _entrypoint_download_images():
 
     download_images(
         args["base_dir"],
-        args["label"],
+        args["labels"],
         args["exclusions"],
         args["csv_dir"],
         args["limit"],
