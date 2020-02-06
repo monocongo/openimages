@@ -827,7 +827,7 @@ def _entrypoint_download_dataset():
 
     # we must have an annotation format specified
     if args["format"] is None:
-        raise argparse.ArgumentError(f"Missing the required '--format' argument")
+        raise argparse.ArgumentError(None, f"Missing the required '--format' argument")
 
     download_dataset(
         args["base_dir"],
@@ -845,7 +845,7 @@ def _entrypoint_download_images():
 
     # we must not have an annotation format specified
     if args["format"] is not None:
-        raise argparse.ArgumentError("Invalid '--format' argument")
+        raise argparse.ArgumentError(None, "Invalid '--format' argument")
 
     download_images(
         args["base_dir"],
