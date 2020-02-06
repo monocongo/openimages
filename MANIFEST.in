@@ -1,0 +1,10 @@
+include pyproject.toml
+
+# include the README
+include *.md
+
+# include the license file
+include LICENSE.txt
+
+# include all files under the src directory
+graft src
