@@ -46,3 +46,16 @@ If you'll use these commands more than once then it's imperative to utilize the
 bounding box information etc., as this will save you from having to redownload this 
 large file in subsequent usages.
 
+###### Usage examples
+Download images and PASCAL format annotations for the class labels "Scissors" and 
+"Hammer", limiting the number of images to 200 and storing the CSV files under 
+`~/openimages` (reading the CSV files from there if they already exist):
+```bash
+$ oi_download_dataset --csv_dir ~/openimages --base_dir ~/openimages --labels Scissors Hammer --format pascal --limit 100
+```
+Download images only for the class label "Scissors", limiting the number of images 
+to 100 and storing the CSV files under `~/openimages` (reading the CSV files from 
+there if they already exist):
+```bash
+$ oi_download_images --csv_dir ~/openimages --base_dir ~/openimages --labels Scissors --limit 100
+```
