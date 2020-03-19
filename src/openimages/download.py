@@ -298,9 +298,11 @@ def download_segmentation_dataset(
         corresponding images and annotations directories for the class
     """
 
-    # make the metadata directory if it's specified and doesn't exist
-    if meta_dir is not None:
-        os.makedirs(meta_dir, exist_ok=True)
+    if meta_dir is None:
+        raise ValueError("Downloading segmentations requires meta_dir to be specified")
+
+    # make the metadata directory if it doesn't exist
+    os.makedirs(meta_dir, exist_ok=True)
 
     # get the OpenImages image class codes for the specified class labels
     label_codes = _class_label_codes(class_labels, meta_dir)
@@ -315,6 +317,11 @@ def download_segmentation_dataset(
         class_directories[class_label] = {
             "images_dir": images_dir,
         }
+
+        # create directory to contain the segmentation files for the class
+        segmentations_dir = os.path.join(dest_dir, class_label, "segmentations")
+        os.makedirs(segmentations_dir, exist_ok=True)
+        class_directories[class_label]["segmentations_dir"] = segmentations_dir
 
         # create directory to contain the annotation files for the class
         if annotation_format is not None:
@@ -358,15 +365,23 @@ def download_segmentation_dataset(
                 elif remaining < len(image_ids):
                     image_ids = list(image_ids)[0:remaining]
 
-            # download the images
+            # download the images and masks
             _logger.info(
-                f"Downloading {len(image_ids)} {split_section} images "
+                f"Downloading {len(image_ids)} {split_section} images and segmentation masks "
                 f"for class \'{class_label}\'",
             )
+
             _download_images_by_id(
                 image_ids,
                 split_section,
                 class_directories[class_label]["images_dir"],
+            )
+
+            _download_segmentations_by_image_id(
+                segmentation_groups,
+                split_section,
+                os.path.join(meta_dir, "segmentation-zips"),
+                class_directories[class_label]["segmentations_dir"],
             )
 
             # update the downloaded images count for this label
@@ -477,7 +492,58 @@ def _download_images_by_id(
 
         # use the executor to map the download function to the iterable of arguments
         list(tqdm(executor.map(_download_single_image, download_args_list),
-                  total=len(download_args_list)))
+                  total=len(download_args_list), desc="Downloading images"))
+
+
+# ------------------------------------------------------------------------------
+def _download_segmentations_by_image_id(
+        mask_data: pd.core.groupby.DataFrameGroupBy,
+        section: str,
+        segmentation_meta_dir: str,
+        segmentations_directory: str,
+):
+    """
+    Downloads image segmentation masks from OpenImages dataset.
+
+    :param image_ids: list of image IDs for which to download segmentation masks
+    :param section: split section (train, validation, or test) where the image
+        should be found
+    :param mask_data: annotation data for the segmentation masks
+    :param segmentations_directory: destination directory where the mask files
+        are to be written
+    """
+    from .download_segmentations import download_segmentation_zipfiles, extract_segmentation_mask, open_segmentation_zipfiles, close_segmentation_zipfiles
+
+    download_segmentation_zipfiles(_OID_v5, section, segmentation_meta_dir)
+
+    _logger.info(f"Opening segmentation mask zip files")
+    handle_map = open_segmentation_zipfiles(section, segmentation_meta_dir)
+
+    # create an iterable list of function arguments
+    # that we'll map to the download function
+    download_args_list = []
+    for image_id in mask_data.groups.keys():
+        masks = mask_data.get_group(image_id)['MaskPath'].values.tolist()
+        for mask_name in masks:
+            download_args = {
+                "handle_map": handle_map,
+                "section": section,
+                "mask_filename": mask_name,
+                "dest_file_path": segmentations_directory,
+            }
+            download_args_list.append(download_args)
+
+    # Use a ThreadPoolExecutor to extract the images in parallel.
+    #
+    # Note: max_workers set to 1 since any actual parallelism causes a crash due
+    #       decompression errors, probably related to the shared archive handles.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+
+        # use the executor to map the extraction function to the iterable of arguments
+        list(tqdm(executor.map(extract_segmentation_mask, download_args_list),
+                  total=len(download_args_list), desc="Extracting mask images"))
+
+    close_segmentation_zipfiles(handle_map)
 
 
 # ------------------------------------------------------------------------------
