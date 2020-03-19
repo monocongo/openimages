@@ -16,6 +16,8 @@ from tqdm import tqdm
 
 from cvdata.utils import image_dimensions
 
+from helpers import download_file
+
 # define a "public API" and somewhat manage "wild" imports
 # (see http://xion.io/post/code/python-all-wild-imports.html)
 __all__ = ["download_dataset", "download_images"]
@@ -59,14 +61,12 @@ def _class_label_codes(
     if meta_dir is None:
 
         # get the class descriptions CSV from OpenImages and read into a DataFrame
-        url = _OID_v5 + classes_csv
-        response = requests.get(url, allow_redirects=True)
-        if response.status_code != 200:
-            raise ValueError(
-                "Failed to get class descriptions information -- Invalid "
-                f"response (status code: {response.status_code}) from {url}",
-            )
-        df_classes = pd.read_csv(io.BytesIO(response.content), header=None)
+        try:
+            contents = download_file(_OID_v5 + classes_csv)
+        except ValueError as e:
+            raise ValueError("Failed to get class descriptions information.", e)
+
+        df_classes = pd.read_csv(io.BytesIO(contents), header=None)
 
     else:
 
@@ -76,14 +76,10 @@ def _class_label_codes(
 
             # get the annotations CSV for the section
             url = _OID_v5 + classes_csv
-            response = requests.get(url, allow_redirects=True)
-            if response.status_code != 200:
-                raise ValueError(
-                    "Failed to get class descriptions information -- Invalid "
-                    f"response (status code: {response.status_code}) from {url}",
-                )
-            with open(descriptions_csv_file_path, "wb") as descriptions_csv_file:
-                descriptions_csv_file.write(response.content)
+            try:
+                download_file(url, descriptions_csv_file_path)
+            except ValueError as e:
+                raise ValueError("Failed to get class descriptions information.", e)
 
         df_classes = pd.read_csv(descriptions_csv_file_path, header=None)
 
@@ -118,14 +114,12 @@ def _class_label_segmentation_codes(
     if meta_dir is None:
 
         # get the class codes text file
-        url = _OID_v5 + classes_txt
-        response = requests.get(url, stream=True, allow_redirects=True)
-        if response.status_code != 200:
-            raise ValueError(
-                "Failed to get class descriptions information -- Invalid "
-                f"response (status code: {response.status_code}) from {url}",
-            )
-        class_label_codes = [line for line in response.iter_lines()]
+        try:
+            contents = download_file(_OID_v5 + classes_txt)
+        except ValueError as e:
+            raise ValueError("Failed to get class descriptions information.", e)
+
+        class_label_codes = [line for line in contents.splitlines()]
 
     else:
 
@@ -135,16 +129,10 @@ def _class_label_segmentation_codes(
 
             # get the class label codes
             url = _OID_v5 + classes_txt
-            response = requests.get(url, allow_redirects=True)
-            if response.status_code != 200:
-                raise ValueError(
-                    "Failed to get class descriptions information -- Invalid "
-                    f"response (status code: {response.status_code}) from {url}",
-                )
-
-            # write the lines of the file
-            with open(class_label_codes_file_path, "wb") as class_label_codes_file:
-                class_label_codes_file.write(response.content)
+            try:
+                download_file(url, class_label_codes_file_path)
+            except ValueError as e:
+                raise ValueError("Failed to get class descriptions information.", e)
 
             # read the lines into a list
             class_label_codes = []
@@ -604,47 +592,45 @@ def _build_annotation(arguments: Dict):
 # ------------------------------------------------------------------------------
 def _get_annotations_csv(
         split_section: str,
-) -> requests.Response:
+) -> str:
     """
     Requests the annotations CSV for a split section.
 
     :param split_section:
-    :return: a requests.Response object containing the CSV payload
+    :return: the CSV payload
     """
 
     # get the annotations CSV for the section
     url = _OID_v4 + split_section + "/" + split_section + "-annotations-bbox.csv"
-    response = requests.get(url, allow_redirects=True)
-    if response.status_code != 200:
+    try:
+        contents = download_file(url)
+    except ValueError as e:
         raise ValueError(
-            f"Failed to get bounding box information for split section {split_section} "
-            f"-- Invalid response (status code: {response.status_code}) from {url}",
-        )
+            f"Failed to get bounding box information for split section {split_section}.", e)
 
-    return response
+    return contents
 
 
 # ------------------------------------------------------------------------------
 def _get_segmentations_csv(
         split_section: str,
-) -> requests.Response:
+) -> str:
     """
     Requests the segmentations CSV for a split section.
 
     :param split_section:
-    :return: a requests.Response object containing the CSV payload
+    :return: the CSV payload
     """
 
     # get the annotations CSV for the section
     url = _OID_v5 + split_section + "-annotations-object-segmentation.csv"
-    response = requests.get(url, allow_redirects=True)
-    if response.status_code != 200:
+    try:
+        contents = download_file(url)
+    except ValueError as e:
         raise ValueError(
-            f"Failed to get bounding box information for split section {split_section} "
-            f"-- Invalid response (status code: {response.status_code}) from {url}",
-        )
+            f"Failed to get bounding box information for split section {split_section} ", e)
 
-    return response
+    return contents
 
 
 # ------------------------------------------------------------------------------
@@ -667,13 +653,15 @@ def _group_bounding_boxes(
     :return: DataFrameGroupBy object with bounding box columns grouped by image IDs
     """
 
+    _logger.info(f"Reading bounding box data")
+
     if meta_dir is None:
 
         # get the annotations CSV for the section
-        response = _get_annotations_csv(section)
+        contents = _get_annotations_csv(section)
 
         # read the CSV into a pandas DataFrame
-        df_images = pd.read_csv(io.BytesIO(response.content))
+        df_images = pd.read_csv(io.BytesIO(contents))
 
     else:
 
@@ -681,9 +669,9 @@ def _group_bounding_boxes(
         bbox_csv_file_path = os.path.join(meta_dir, section + "-annotations-bbox.csv")
         if not os.path.exists(bbox_csv_file_path):
             # get the annotations CSV for the section
-            response = _get_annotations_csv(section)
+            contents = _get_annotations_csv(section)
             with open(bbox_csv_file_path, "wb") as annotations_file:
-                annotations_file.write(response.content)
+                annotations_file.write(contents)
 
         # read the CSV into a pandas DataFrame
         df_images = pd.read_csv(bbox_csv_file_path)
@@ -749,13 +737,15 @@ def _group_segments(
     :return: DataFrameGroupBy object with bounding box columns grouped by image IDs
     """
 
+    _logger.info(f"Reading segmentation mask data")
+
     if meta_dir is None:
 
         # get the annotations CSV for the section
-        response = _get_segmentations_csv(section)
+        contents = _get_segmentations_csv(section)
 
         # read the CSV into a pandas DataFrame
-        df_images = pd.read_csv(io.BytesIO(response.content))
+        df_images = pd.read_csv(io.BytesIO(contents))
 
     else:
 
@@ -763,9 +753,9 @@ def _group_segments(
         bbox_csv_file_path = os.path.join(meta_dir, section + "-annotations-object-segmentation.csv")
         if not os.path.exists(bbox_csv_file_path):
             # get the annotations CSV for the section
-            response = _get_segmentations_csv(section)
+            contents = _get_segmentations_csv(section)
             with open(bbox_csv_file_path, "wb") as annotations_file:
-                annotations_file.write(response.content)
+                annotations_file.write(contents)
 
         # read the CSV into a pandas DataFrame
         df_images = pd.read_csv(bbox_csv_file_path)
