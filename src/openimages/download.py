@@ -578,7 +578,7 @@ def _build_annotation(arguments: Dict):
             arguments["image_id"],
             arguments["images_dir"],
             arguments["annotations_dir"],
-            arguments["include_segmentation_masks"],
+            # arguments["include_segmentation_masks"],
         )
 
     elif arguments["annotation_format"] == "darknet":
@@ -636,7 +636,7 @@ def _get_segmentations_csv(
     """
 
     # get the annotations CSV for the section
-    url = _OID_v5 + "/" + split_section + "-annotations-object-segmentation.csv"
+    url = _OID_v5 + split_section + "-annotations-object-segmentation.csv"
     response = requests.get(url, allow_redirects=True)
     if response.status_code != 200:
         raise ValueError(
@@ -773,23 +773,6 @@ def _group_segments(
     # remove any rows which are identified to be excluded
     if exclusion_ids and (len(exclusion_ids) > 0):
         df_images = df_images[~df_images["ImageID"].isin(exclusion_ids)]
-
-    # filter out images that are occluded, truncated, group, depiction, inside, etc.
-    for reject_field in ("IsOccluded", "IsTruncated", "IsGroupOf", "IsDepiction", "IsInside"):
-        df_images = df_images[df_images[reject_field] == 0]
-
-    # drop the columns we won't need, keeping only
-    # the image ID, label name and bounding box columns
-    unnecessary_columns = [
-        "IsOccluded",
-        "IsTruncated",
-        "IsGroupOf",
-        "IsDepiction",
-        "IsInside",
-        "Source",
-        "Confidence",
-    ]
-    df_images.drop(unnecessary_columns, axis=1, inplace=True)
 
     # create a dictionary and populate it with class labels mapped to
     # GroupByDataFrame objects with bounding boxes grouped by image ID
