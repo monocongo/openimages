@@ -347,7 +347,8 @@ def download_segmentation_dataset(
         # get a dictionary of class labels to GroupByDataFrames
         # containing bounding box info grouped by image IDs
         label_bbox_groups = _group_bounding_boxes(split_section, label_codes, exclusion_ids, meta_dir)
-        label_segment_groups = _group_segments(split_section, label_codes, exclusion_ids, meta_dir)
+        label_images_ids = {l: gbdf.groups.keys() for (l, gbdf) in label_bbox_groups.items()}
+        label_segment_groups = _group_segments(split_section, label_codes, label_images_ids, meta_dir)
 
         for label_index, class_label in enumerate(class_labels):
 
@@ -355,7 +356,7 @@ def download_segmentation_dataset(
             # grouped by image and the collection of image IDs
             bbox_groups = label_bbox_groups[class_label]
             segmentation_groups = label_segment_groups[class_label]
-            image_ids = bbox_groups.groups.keys()
+            image_ids = label_images_ids[class_label]
 
             # limit the number of images we'll download, if specified
             if limit is not None:
@@ -367,7 +368,7 @@ def download_segmentation_dataset(
 
             # download the images and masks
             _logger.info(
-                f"Downloading {len(image_ids)} {split_section} images and segmentation masks "
+                f"Downloading {len(image_ids)} {split_section} images and accompanying segmentation masks "
                 f"for class \'{class_label}\'",
             )
 
@@ -787,17 +788,23 @@ def _group_bounding_boxes(
 def _group_segments(
         section: str,
         label_codes: Dict,
-        exclusion_ids: Set[str],
+        label_image_ids: Dict,
         meta_dir: str = None,
 ) -> pd.core.groupby.DataFrameGroupBy:
     """
     Gets a pandas DataFrameGroupBy object containing segmentations for an image
     class grouped by image ID.
 
+    Instead of allowing exclusions, this function accepts a list of image IDs to
+    include. This is because the bounding box attribute information (IsOccluded
+    etc.) is only available when reading that file. This construction allows
+    using the list of bbox images to control for which images masks are fetched.
+
     :param section: the relevant split section, "train", "validation", or "test"
     :param label_codes: dictionary with class labels mapped to the
         corresponding OpenImages-specific code of the image class
-    :param exclusion_ids: file IDs that should be excluded
+    :param label_image_ids: dictionary with class labels mapped to the image IDs
+        for which to download segmentation masks
     :param meta_dir: directory where the segmentations CSV should be located,
         if not present it will be downloaded and stored here for future use
     :return: DataFrameGroupBy object with bounding box columns grouped by image IDs
@@ -826,17 +833,17 @@ def _group_segments(
         # read the CSV into a pandas DataFrame
         df_images = pd.read_csv(bbox_csv_file_path)
 
-    # remove any rows which are identified to be excluded
-    if exclusion_ids and (len(exclusion_ids) > 0):
-        df_images = df_images[~df_images["ImageID"].isin(exclusion_ids)]
-
     # create a dictionary and populate it with class labels mapped to
-    # GroupByDataFrame objects with bounding boxes grouped by image ID
+    # GroupByDataFrame objects with segmentation data grouped by image ID
     labels_to_bounding_box_groups = {}
     for class_label, class_code in label_codes.items():
 
         # filter the DataFrame down to just the images for the class label
         df_label_images = df_images[df_images["LabelName"] == class_code]
+
+        # keep only masks for images we are asked to select
+        image_ids = label_image_ids[class_label]
+        df_label_images = df_label_images[df_label_images["ImageID"].isin(image_ids)]
 
         # drop the label name column since it's no longer needed
         df_label_images.drop(["LabelName"], axis=1, inplace=True)
@@ -844,7 +851,7 @@ def _group_segments(
         # map the class label to a GroupBy object with each
         # group's row containing the bounding box columns
         labels_to_bounding_box_groups[class_label] = \
-            df_label_images.groupby(df_images["ImageID"])
+            df_label_images.groupby(df_label_images["ImageID"])
 
     # return the dictionary we've created
     return labels_to_bounding_box_groups
