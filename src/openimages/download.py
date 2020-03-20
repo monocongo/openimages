@@ -1093,6 +1093,8 @@ def _download_single_image(arguments: Dict):
         "dest_file_path": destination directory where the image file should be
             written
     """
+    if os.path.exists(arguments["dest_file_path"]):
+        return
 
     try:
         with open(arguments["dest_file_path"], "wb") as dest_file:
