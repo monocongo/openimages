@@ -16,6 +16,8 @@ from tqdm import tqdm
 
 from cvdata.utils import image_dimensions
 
+from helpers import download_file
+
 # define a "public API" and somewhat manage "wild" imports
 # (see http://xion.io/post/code/python-all-wild-imports.html)
 __all__ = ["download_dataset", "download_images"]
@@ -40,7 +42,7 @@ _logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------------------
 def _class_label_codes(
         class_labels: List[str],
-        csv_dir: str = None,
+        meta_dir: str = None,
 ) -> Dict:
     """
     Gets a dictionary that maps a list of OpenImages image class labels to their
@@ -48,7 +50,7 @@ def _class_label_codes(
 
     :param class_labels: image class labels for which we'll find corresponding
         OpenImages image class codes
-    :param csv_dir: directory where we should look for the class descriptions
+    :param meta_dir: directory where we should look for the class descriptions
         CSV file, and if not present download it into there for future use
     :return: dictionary with the class labels mapped to their corresponding
         OpenImages image class codes
@@ -56,34 +58,28 @@ def _class_label_codes(
 
     classes_csv = "class-descriptions-boxable.csv"
 
-    if csv_dir is None:
+    if meta_dir is None:
 
         # get the class descriptions CSV from OpenImages and read into a DataFrame
-        url = _OID_v5 + classes_csv
-        response = requests.get(url, allow_redirects=True)
-        if response.status_code != 200:
-            raise ValueError(
-                "Failed to get class descriptions information -- Invalid "
-                f"response (status code: {response.status_code}) from {url}",
-            )
-        df_classes = pd.read_csv(io.BytesIO(response.content), header=None)
+        try:
+            contents = download_file(_OID_v5 + classes_csv)
+        except ValueError as e:
+            raise ValueError("Failed to get class descriptions information.", e)
+
+        df_classes = pd.read_csv(io.BytesIO(contents), header=None)
 
     else:
 
         # download the class descriptions CSV file to the specified directory if not present
-        descriptions_csv_file_path = os.path.join(csv_dir, classes_csv)
+        descriptions_csv_file_path = os.path.join(meta_dir, classes_csv)
         if not os.path.exists(descriptions_csv_file_path):
 
             # get the annotations CSV for the section
             url = _OID_v5 + classes_csv
-            response = requests.get(url, allow_redirects=True)
-            if response.status_code != 200:
-                raise ValueError(
-                    "Failed to get class descriptions information -- Invalid "
-                    f"response (status code: {response.status_code}) from {url}",
-                )
-            with open(descriptions_csv_file_path, "wb") as descriptions_csv_file:
-                descriptions_csv_file.write(response.content)
+            try:
+                download_file(url, descriptions_csv_file_path)
+            except ValueError as e:
+                raise ValueError("Failed to get class descriptions information.", e)
 
         df_classes = pd.read_csv(descriptions_csv_file_path, header=None)
 
@@ -98,12 +94,63 @@ def _class_label_codes(
 
 
 # ------------------------------------------------------------------------------
+def _class_label_segmentation_codes(
+        class_labels: List[str],
+        meta_dir: str = None,
+) -> List[str]:
+    """
+    Gets a list of OpenImages image class label codes relevant to segmentation
+    masks.
+
+    :param class_labels: image class labels for which we'll find corresponding
+        OpenImages image class codes
+    :param meta_dir: directory where we should look for the class label codes
+        file, and if not present download it into there for future use
+    :return: list of OpenImages class label codes
+    """
+
+    classes_txt = "classes-segmentation.txt"
+    class_label_codes = []
+    if meta_dir is None:
+
+        # get the class codes text file
+        try:
+            contents = download_file(_OID_v5 + classes_txt)
+        except ValueError as e:
+            raise ValueError("Failed to get class descriptions information.", e)
+
+        class_label_codes = [line for line in contents.splitlines()]
+
+    else:
+
+        # download the class descriptions CSV file to the specified directory if not present
+        class_label_codes_file_path = os.path.join(meta_dir, classes_txt)
+        if not os.path.exists(class_label_codes_file_path):
+
+            # get the class label codes
+            url = _OID_v5 + classes_txt
+            try:
+                download_file(url, class_label_codes_file_path)
+            except ValueError as e:
+                raise ValueError("Failed to get class descriptions information.", e)
+
+            # read the lines into a list
+            class_label_codes = []
+            with open(class_label_codes_file_path, "r") as class_label_codes_file:
+                for line in class_label_codes_file:
+                    class_labels.append(line.strip())
+
+    # return the OpenImages class label codes
+    return class_label_codes
+
+
+# ------------------------------------------------------------------------------
 def download_dataset(
         dest_dir: str,
         class_labels: List[str],
         exclusions_path: str = None,
         annotation_format: str = None,
-        csv_dir: str = None,
+        meta_dir: str = None,
         limit: int = None,
 ) -> Dict:
     """
@@ -117,7 +164,7 @@ def download_dataset(
         "darknet" (YOLO) and "pascal" (PASCAL VOC)
     :param exclusions_path: path to file containing file IDs to exclude from the
         dataset (useful if there are files known to be problematic or invalid)
-    :param csv_dir: directory where we should look for the class descriptions
+    :param meta_dir: directory where we should look for the class descriptions
         and annotations CSV files, if these files are not present from a previous
         usage then download these files into this directory for future use
     :param limit: the maximum number of images per label we should download
@@ -126,11 +173,11 @@ def download_dataset(
     """
 
     # make the metadata directory if it's specified and doesn't exist
-    if csv_dir is not None:
-        os.makedirs(csv_dir, exist_ok=True)
+    if meta_dir is not None:
+        os.makedirs(meta_dir, exist_ok=True)
 
     # get the OpenImages image class codes for the specified class labels
-    label_codes = _class_label_codes(class_labels, csv_dir)
+    label_codes = _class_label_codes(class_labels, meta_dir)
 
     # build the directories for each class label
     class_directories = {}
@@ -166,7 +213,7 @@ def download_dataset(
 
         # get a dictionary of class labels to GroupByDataFrames
         # containing bounding box info grouped by image IDs
-        label_bbox_groups = _group_bounding_boxes(split_section, label_codes, exclusion_ids, csv_dir)
+        label_bbox_groups = _group_bounding_boxes(split_section, label_codes, exclusion_ids, meta_dir)
 
         for label_index, class_label in enumerate(class_labels):
 
@@ -224,11 +271,157 @@ def download_dataset(
 
 
 # ------------------------------------------------------------------------------
+def download_segmentation_dataset(
+        dest_dir: str,
+        class_labels: List[str],
+        exclusions_path: str = None,
+        annotation_format: str = None,
+        meta_dir: str = None,
+        limit: int = None,
+) -> Dict:
+    """
+    Downloads a dataset of images, bounding boxes, and segmentation annotations
+    for a specified list of OpenImages image class labels.
+
+    :param dest_dir: base directory under which the images and annotations
+        will be stored
+    :param class_labels: list of OpenImages class labels we'll download
+    :param annotation_format: format of annotation files, valid options:
+        "darknet" (YOLO) and "pascal" (PASCAL VOC)
+    :param exclusions_path: path to file containing file IDs to exclude from the
+        dataset (useful if there are files known to be problematic or invalid)
+    :param meta_dir: directory where we should look for the class descriptions
+        and annotations CSV files, if these files are not present from a previous
+        usage then download these files into this directory for future use
+    :param limit: the maximum number of images per label we should download
+    :return: dictionary of class labels mapped to dictionaries specifying the
+        corresponding images and annotations directories for the class
+    """
+
+    if meta_dir is None:
+        raise ValueError("Downloading segmentations requires meta_dir to be specified")
+
+    # make the metadata directory if it doesn't exist
+    os.makedirs(meta_dir, exist_ok=True)
+
+    # get the OpenImages image class codes for the specified class labels
+    label_codes = _class_label_codes(class_labels, meta_dir)
+
+    # build the directories for each class label
+    class_directories = {}
+    for class_label in label_codes.keys():
+
+        # create directory to contain the image files for the class
+        images_dir = os.path.join(dest_dir, class_label, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        class_directories[class_label] = {
+            "images_dir": images_dir,
+        }
+
+        # create directory to contain the segmentation files for the class
+        segmentations_dir = os.path.join(dest_dir, class_label, "segmentations")
+        os.makedirs(segmentations_dir, exist_ok=True)
+        class_directories[class_label]["segmentations_dir"] = segmentations_dir
+
+        # create directory to contain the annotation files for the class
+        if annotation_format is not None:
+            annotations_dir = os.path.join(dest_dir, class_label, annotation_format)
+            os.makedirs(annotations_dir, exist_ok=True)
+            class_directories[class_label]["annotations_dir"] = annotations_dir
+
+    # get the IDs of questionable files marked for exclusion
+    exclusion_ids = None
+    if exclusions_path is not None:
+
+        # read the file IDs from the exclusions file
+        with open(exclusions_path, "r") as exclusions_file:
+            exclusion_ids = set([line.rstrip('\n') for line in exclusions_file])
+
+    # keep counts of the number of images downloaded for each label
+    class_labels = list(label_codes.keys())
+    label_download_counts = {label: 0 for label in class_labels}
+
+    # OpenImages is already split into sections so we'll need to loop over each
+    for split_section in ("train", "validation", "test"):
+
+        # get a dictionary of class labels to GroupByDataFrames
+        # containing bounding box info grouped by image IDs
+        label_bbox_groups = _group_bounding_boxes(split_section, label_codes, exclusion_ids, meta_dir)
+        label_images_ids = {l: gbdf.groups.keys() for (l, gbdf) in label_bbox_groups.items()}
+        label_segment_groups = _group_segments(split_section, label_codes, label_images_ids, meta_dir)
+
+        for label_index, class_label in enumerate(class_labels):
+
+            # get the bounding boxes and segmentation masks
+            # grouped by image and the collection of image IDs
+            bbox_groups = label_bbox_groups[class_label]
+            segmentation_groups = label_segment_groups[class_label]
+            image_ids = label_images_ids[class_label]
+
+            # limit the number of images we'll download, if specified
+            if limit is not None:
+                remaining = limit - label_download_counts[class_label]
+                if remaining <= 0:
+                    break
+                elif remaining < len(image_ids):
+                    image_ids = list(image_ids)[0:remaining]
+
+            # download the images and masks
+            _logger.info(
+                f"Downloading {len(image_ids)} {split_section} images and accompanying segmentation masks "
+                f"for class \'{class_label}\'",
+            )
+
+            _download_images_by_id(
+                image_ids,
+                split_section,
+                class_directories[class_label]["images_dir"],
+            )
+
+            _download_segmentations_by_image_id(
+                segmentation_groups,
+                split_section,
+                os.path.join(meta_dir, "segmentation-zips"),
+                class_directories[class_label]["segmentations_dir"],
+            )
+
+            # update the downloaded images count for this label
+            label_download_counts[class_label] += len(image_ids)
+
+            # build the annotations
+            if annotation_format is not None:
+                _logger.info(
+                    f"Creating {len(image_ids)} {split_section} annotations "
+                    f"({annotation_format}) for class \'{class_label}\'",
+                )
+                _build_annotations(
+                    annotation_format,
+                    image_ids,
+                    bbox_groups,
+                    class_labels,
+                    label_index,
+                    class_directories[class_label]["images_dir"],
+                    class_directories[class_label]["annotations_dir"],
+                    True,
+                )
+
+                if annotation_format == "darknet":
+                    # write the class labels to a names file to allow
+                    # for indexing the Darknet label numbers
+                    darknet_object_names = os.path.join(dest_dir, "darknet_obj_names.txt")
+                    with open(darknet_object_names, "w") as darknet_obj_names_file:
+                        for label in class_labels:
+                            darknet_obj_names_file.write(f"{label}\n")
+
+    return class_directories
+
+
+# ------------------------------------------------------------------------------
 def download_images(
         dest_dir: str,
         class_labels: List[str],
         exclusions_path: str,
-        csv_dir: str = None,
+        meta_dir: str = None,
         limit: int = None,
 ) -> Dict:
     """
@@ -239,7 +432,7 @@ def download_images(
     :param class_labels: list of OpenImages class labels we'll download
     :param exclusions_path: path to file containing file IDs to exclude from the
         dataset (useful if there are files known to be problematic or invalid)
-    :param csv_dir: directory where we should look for the class descriptions
+    :param meta_dir: directory where we should look for the class descriptions
         and annotations CSV files, if these files are not present from a previous
         usage then download these files into this directory for future use
     :param limit: the maximum number of images per label we should download
@@ -252,7 +445,7 @@ def download_images(
         class_labels,
         exclusions_path,
         None,
-        csv_dir,
+        meta_dir,
         limit,
     )
 
@@ -300,7 +493,58 @@ def _download_images_by_id(
 
         # use the executor to map the download function to the iterable of arguments
         list(tqdm(executor.map(_download_single_image, download_args_list),
-                  total=len(download_args_list)))
+                  total=len(download_args_list), desc="Downloading images"))
+
+
+# ------------------------------------------------------------------------------
+def _download_segmentations_by_image_id(
+        mask_data: pd.core.groupby.DataFrameGroupBy,
+        section: str,
+        segmentation_meta_dir: str,
+        segmentations_directory: str,
+):
+    """
+    Downloads image segmentation masks from OpenImages dataset.
+
+    :param image_ids: list of image IDs for which to download segmentation masks
+    :param section: split section (train, validation, or test) where the image
+        should be found
+    :param mask_data: annotation data for the segmentation masks
+    :param segmentations_directory: destination directory where the mask files
+        are to be written
+    """
+    from .download_segmentations import download_segmentation_zipfiles, extract_segmentation_mask, open_segmentation_zipfiles, close_segmentation_zipfiles
+
+    download_segmentation_zipfiles(_OID_v5, section, segmentation_meta_dir)
+
+    _logger.info(f"Opening segmentation mask zip files")
+    handle_map = open_segmentation_zipfiles(section, segmentation_meta_dir)
+
+    # create an iterable list of function arguments
+    # that we'll map to the download function
+    download_args_list = []
+    for image_id in mask_data.groups.keys():
+        masks = mask_data.get_group(image_id)['MaskPath'].values.tolist()
+        for mask_name in masks:
+            download_args = {
+                "handle_map": handle_map,
+                "section": section,
+                "mask_filename": mask_name,
+                "dest_file_path": segmentations_directory,
+            }
+            download_args_list.append(download_args)
+
+    # Use a ThreadPoolExecutor to extract the images in parallel.
+    #
+    # Note: max_workers set to 1 since any actual parallelism causes a crash due
+    #       decompression errors, probably related to the shared archive handles.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+
+        # use the executor to map the extraction function to the iterable of arguments
+        list(tqdm(executor.map(extract_segmentation_mask, download_args_list),
+                  total=len(download_args_list), desc="Extracting mask images"))
+
+    close_segmentation_zipfiles(handle_map)
 
 
 # ------------------------------------------------------------------------------
@@ -312,6 +556,7 @@ def _build_annotations(
         class_index: int,
         images_directory: str,
         annotations_directory: str,
+        include_segmentation_masks: bool = False,
 ):
     """
     Builds and saves annotations for a collection of images.
@@ -324,6 +569,7 @@ def _build_annotations(
     :param images_directory: directory where the image files should be located
     :param annotations_directory: destination directory where the annotation
         files are to be written
+    :param include_segmentation_masks:
     """
 
     # create an iterable list of function arguments
@@ -342,6 +588,7 @@ def _build_annotations(
             "image_id": image_id,
             "images_dir": images_directory,
             "annotations_dir": annotations_directory,
+            "include_segmentation_masks": include_segmentation_masks,
         }
 
         if annotation_format == "pascal":
@@ -386,6 +633,7 @@ def _build_annotation(arguments: Dict):
             arguments["image_id"],
             arguments["images_dir"],
             arguments["annotations_dir"],
+            # arguments["include_segmentation_masks"],
         )
 
     elif arguments["annotation_format"] == "darknet":
@@ -411,24 +659,45 @@ def _build_annotation(arguments: Dict):
 # ------------------------------------------------------------------------------
 def _get_annotations_csv(
         split_section: str,
-) -> requests.Response:
+) -> str:
     """
     Requests the annotations CSV for a split section.
 
     :param split_section:
-    :return: a requests.Response object containing the CSV payload
+    :return: the CSV payload
     """
 
     # get the annotations CSV for the section
     url = _OID_v4 + split_section + "/" + split_section + "-annotations-bbox.csv"
-    response = requests.get(url, allow_redirects=True)
-    if response.status_code != 200:
+    try:
+        contents = download_file(url)
+    except ValueError as e:
         raise ValueError(
-            f"Failed to get bounding box information for split section {split_section} "
-            f"-- Invalid response (status code: {response.status_code}) from {url}",
-        )
+            f"Failed to get bounding box information for split section {split_section}.", e)
 
-    return response
+    return contents
+
+
+# ------------------------------------------------------------------------------
+def _get_segmentations_csv(
+        split_section: str,
+) -> str:
+    """
+    Requests the segmentations CSV for a split section.
+
+    :param split_section:
+    :return: the CSV payload
+    """
+
+    # get the annotations CSV for the section
+    url = _OID_v5 + split_section + "-annotations-object-segmentation.csv"
+    try:
+        contents = download_file(url)
+    except ValueError as e:
+        raise ValueError(
+            f"Failed to get bounding box information for split section {split_section} ", e)
+
+    return contents
 
 
 # ------------------------------------------------------------------------------
@@ -436,8 +705,8 @@ def _group_bounding_boxes(
         section: str,
         label_codes: Dict,
         exclusion_ids: Set[str],
-        csv_dir: str = None,
-) -> Dict:
+        meta_dir: str = None,
+) -> pd.core.groupby.DataFrameGroupBy:
     """
     Gets a pandas DataFrameGroupBy object containing bounding boxes for an image
     class grouped by image ID.
@@ -446,27 +715,30 @@ def _group_bounding_boxes(
     :param label_codes: dictionary with class labels mapped to the
         corresponding OpenImages-specific code of the image class
     :param exclusion_ids: file IDs that should be excluded
-    :param csv_dir
+    :param meta_dir: directory where the annotations CSV should be located,
+        if not present it will be downloaded and stored here for future use
     :return: DataFrameGroupBy object with bounding box columns grouped by image IDs
     """
 
-    if csv_dir is None:
+    _logger.info(f"Reading bounding box data")
+
+    if meta_dir is None:
 
         # get the annotations CSV for the section
-        response = _get_annotations_csv(section)
+        contents = _get_annotations_csv(section)
 
         # read the CSV into a pandas DataFrame
-        df_images = pd.read_csv(io.BytesIO(response.content))
+        df_images = pd.read_csv(io.BytesIO(contents))
 
     else:
 
         # download the annotations CSV file to the specified directory if not present
-        bbox_csv_file_path = os.path.join(csv_dir, section + "-annotations-bbox.csv")
+        bbox_csv_file_path = os.path.join(meta_dir, section + "-annotations-bbox.csv")
         if not os.path.exists(bbox_csv_file_path):
             # get the annotations CSV for the section
-            response = _get_annotations_csv(section)
+            contents = _get_annotations_csv(section)
             with open(bbox_csv_file_path, "wb") as annotations_file:
-                annotations_file.write(response.content)
+                annotations_file.write(contents)
 
         # read the CSV into a pandas DataFrame
         df_images = pd.read_csv(bbox_csv_file_path)
@@ -507,6 +779,79 @@ def _group_bounding_boxes(
         # group's row containing the bounding box columns
         labels_to_bounding_box_groups[class_label] = \
             df_label_images.groupby(df_images["ImageID"])
+
+    # return the dictionary we've created
+    return labels_to_bounding_box_groups
+
+
+# ------------------------------------------------------------------------------
+def _group_segments(
+        section: str,
+        label_codes: Dict,
+        label_image_ids: Dict,
+        meta_dir: str = None,
+) -> pd.core.groupby.DataFrameGroupBy:
+    """
+    Gets a pandas DataFrameGroupBy object containing segmentations for an image
+    class grouped by image ID.
+
+    Instead of allowing exclusions, this function accepts a list of image IDs to
+    include. This is because the bounding box attribute information (IsOccluded
+    etc.) is only available when reading that file. This construction allows
+    using the list of bbox images to control for which images masks are fetched.
+
+    :param section: the relevant split section, "train", "validation", or "test"
+    :param label_codes: dictionary with class labels mapped to the
+        corresponding OpenImages-specific code of the image class
+    :param label_image_ids: dictionary with class labels mapped to the image IDs
+        for which to download segmentation masks
+    :param meta_dir: directory where the segmentations CSV should be located,
+        if not present it will be downloaded and stored here for future use
+    :return: DataFrameGroupBy object with bounding box columns grouped by image IDs
+    """
+
+    _logger.info(f"Reading segmentation mask data")
+
+    if meta_dir is None:
+
+        # get the annotations CSV for the section
+        contents = _get_segmentations_csv(section)
+
+        # read the CSV into a pandas DataFrame
+        df_images = pd.read_csv(io.BytesIO(contents))
+
+    else:
+
+        # download the annotations CSV file to the specified directory if not present
+        bbox_csv_file_path = os.path.join(meta_dir, section + "-annotations-object-segmentation.csv")
+        if not os.path.exists(bbox_csv_file_path):
+            # get the annotations CSV for the section
+            contents = _get_segmentations_csv(section)
+            with open(bbox_csv_file_path, "wb") as annotations_file:
+                annotations_file.write(contents)
+
+        # read the CSV into a pandas DataFrame
+        df_images = pd.read_csv(bbox_csv_file_path)
+
+    # create a dictionary and populate it with class labels mapped to
+    # GroupByDataFrame objects with segmentation data grouped by image ID
+    labels_to_bounding_box_groups = {}
+    for class_label, class_code in label_codes.items():
+
+        # filter the DataFrame down to just the images for the class label
+        df_label_images = df_images[df_images["LabelName"] == class_code]
+
+        # keep only masks for images we are asked to select
+        image_ids = label_image_ids[class_label]
+        df_label_images = df_label_images[df_label_images["ImageID"].isin(image_ids)]
+
+        # drop the label name column since it's no longer needed
+        df_label_images.drop(["LabelName"], axis=1, inplace=True)
+
+        # map the class label to a GroupBy object with each
+        # group's row containing the bounding box columns
+        labels_to_bounding_box_groups[class_label] = \
+            df_label_images.groupby(df_label_images["ImageID"])
 
     # return the dictionary we've created
     return labels_to_bounding_box_groups
@@ -755,6 +1100,8 @@ def _download_single_image(arguments: Dict):
         "dest_file_path": destination directory where the image file should be
             written
     """
+    if os.path.exists(arguments["dest_file_path"]):
+        return
 
     try:
         with open(arguments["dest_file_path"], "wb") as dest_file:
@@ -804,7 +1151,7 @@ def _parse_command_line():
              "the final dataset",
     )
     args_parser.add_argument(
-        "--csv_dir",
+        "--meta_dir",
         type=str,
         required=False,
         help="path to a directory where CSV files for the OpenImages dataset "
@@ -816,6 +1163,12 @@ def _parse_command_line():
         type=int,
         required=False,
         help="maximum number of images to download per image class/label",
+    )
+    args_parser.add_argument(
+        "--include_segmentation",
+        default=False,
+        action='store_true',
+        help="whether or not to include segmentation annotations",
     )
     return vars(args_parser.parse_args())
 
@@ -829,14 +1182,24 @@ def _entrypoint_download_dataset():
     if args["format"] is None:
         raise argparse.ArgumentError(None, f"Missing the required '--format' argument")
 
-    download_dataset(
-        args["base_dir"],
-        args["labels"],
-        args["exclusions"],
-        args["format"],
-        args["csv_dir"],
-        args["limit"],
-    )
+    if args["include_segmentation"]:
+        download_segmentation_dataset(
+            args["base_dir"],
+            args["labels"],
+            args["exclusions"],
+            args["format"],
+            args["meta_dir"],
+            args["limit"],
+        )
+    else:
+        download_dataset(
+            args["base_dir"],
+            args["labels"],
+            args["exclusions"],
+            args["format"],
+            args["meta_dir"],
+            args["limit"],
+        )
 
 
 # ------------------------------------------------------------------------------
@@ -851,7 +1214,7 @@ def _entrypoint_download_images():
         args["base_dir"],
         args["labels"],
         args["exclusions"],
-        args["csv_dir"],
+        args["meta_dir"],
         args["limit"],
     )
 
@@ -861,7 +1224,7 @@ if __name__ == "__main__":
     """
     Usage:
     $ python download.py --base_dir /data/datasets/openimages \
-          --format pascal --label Person --csv_dir /data/datasets/openimages
+          --format pascal --label Person --meta_dir /data/datasets/openimages
     """
 
     _entrypoint_download_dataset()

@@ -37,12 +37,13 @@ Option              | Required | Description
 --base_dir \<dir\>  | yes      | directory into which images and annotations will be downloaded, with each class label having a separate subdirectory containing an "images" subdirectory for image files and (for annotated datasets) an \<annotation_format\> subdirectory for annotation files
 --labels \<label1\> [\<label_2\> ...] | yes      | space-separated list of class labels, at least one required, multi-word labels with spaces must be quoted
 --format \<annotation_format\> | for annotated dataset yes, not applicable for images only  | required for downloading an annotated dataset, currently supported format specifiers are "darknet" and "pascal"
---csv_dir \<dir\> | no, but usually recommended | directory into which the CSV files specifying annotations and class labels are downloaded (if not already present) or read from (if present)
+--meta_dir \<dir\> | no, but usually recommended | directory into which the metadata files specifying annotations and class labels are downloaded (if not already present) or read from (if present)
 --exclusions \<file\> | no | text file containing image file IDs, one per line, for images to be excluded from the final dataset, useful in cases when images have been identified as problematic
 --limit \<int\> | no | the upper limit on the number of images to be downloaded per label class
+--include_segmentation | no | if included then segmentation data will be included in the resulting dataset, only valid in conjunction with "pascal" output annotation format
 ###### NOTE:
 If you'll use these commands more than once then it's imperative to utilize the 
-`--csv_dir` option that specifies where to save the (rather large) CSV file containing 
+`--meta_dir` option that specifies where to save the (rather large) metadata files containing 
 bounding box information etc., as this will save you from having to redownload this 
 large file in subsequent usages.
 
@@ -51,11 +52,11 @@ Download images and PASCAL format annotations for the class labels "Scissors" an
 "Hammer", limiting the number of images to 200 and storing the CSV files under 
 `~/openimages` (reading the CSV files from there if they already exist):
 ```bash
-$ oi_download_dataset --csv_dir ~/openimages --base_dir ~/openimages --labels Scissors Hammer --format pascal --limit 100
+$ oi_download_dataset --meta_dir ~/openimages --base_dir ~/openimages --labels Scissors Hammer --format pascal --limit 100
 ```
 Download images only for the class label "Scissors", limiting the number of images 
 to 100 and storing the CSV files under `~/openimages` (reading the CSV files from 
 there if they already exist):
 ```bash
-$ oi_download_images --csv_dir ~/openimages --base_dir ~/openimages --labels Scissors --limit 100
+$ oi_download_images --meta_dir ~/openimages --base_dir ~/openimages --labels Scissors --limit 100
 ```
