@@ -87,7 +87,7 @@ def _class_label_codes(
     labels_to_codes = {}
     for class_label in class_labels:
         labels_to_codes[class_label.lower()] = \
-            df_classes.loc[df_classes[1] == class_label].values[0][0]
+            df_classes.loc[[i.lower() == class_label.lower() for i in df_classes[1]]].values[0][0]
 
     # return the labels to OpenImages codes dictionary
     return labels_to_codes
