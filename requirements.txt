@@ -6,7 +6,7 @@ cvdata==0.0.3
 docutils==0.15.2
 idna==2.8
 jmespath==0.9.4
-lxml==4.6.5
+lxml==4.9.1
 numpy==1.22.0
 pandas==1.0.1
 python-dateutil==2.8.1
