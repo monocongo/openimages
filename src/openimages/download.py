@@ -420,7 +420,7 @@ def download_segmentation_dataset(
 def download_images(
         dest_dir: str,
         class_labels: List[str],
-        exclusions_path: str,
+        exclusions_path: str = None,
         meta_dir: str = None,
         limit: int = None,
 ) -> Dict:
