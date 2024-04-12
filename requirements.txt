@@ -4,7 +4,7 @@ certifi==2023.7.22
 chardet==3.0.4
 cvdata==0.0.3
 docutils==0.15.2
-idna==2.8
+idna==3.7
 jmespath==0.9.4
 lxml==4.9.1
 numpy==1.22.0
